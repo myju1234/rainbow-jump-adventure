@@ -22,3 +22,6 @@ android/captain-debug.log
 *.apk
 *.aab
 .idea/
+.expo/
+build/expo-html/
+assets/game.html

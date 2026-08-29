@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "무지개점프",
+    "slug": "rainbow-jump",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "rainbowjump",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#8bdfff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "requireFullScreen": true
+    },
+    "android": {
+      "package": "app.rainbowjump.adventure",
+      "adaptiveIcon": {
+        "backgroundColor": "#8bdfff",
+        "foregroundImage": "./assets/icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "LANDSCAPE"
+        }
+      ]
+    ],
+    "owner": "shshmy",
+    "extra": {
+      "eas": {
+        "projectId": "0af87177-19ed-4aaa-b69f-dcb5c677288a"
+      }
+    }
+  }
+}

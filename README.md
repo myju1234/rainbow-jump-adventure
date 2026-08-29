@@ -3,7 +3,25 @@
 통통 뛰며 깃발까지 달리는 점프 어드벤처입니다.
 휴대폰에서는 **플레이 중 가로 화면**으로 진행됩니다.
 
-## 실행
+## Expo Go로 테스트
+
+일상기도(`daily-prayer`)처럼 **Expo Go**로 휴대폰에서 바로 열어볼 수 있습니다.
+
+1. 휴대폰에 [Expo Go](https://expo.dev/go)를 설치합니다.
+2. 프로젝트 폴더에서:
+
+```bash
+npm install
+npm run expo
+```
+
+3. 터미널에 나온 QR 코드를 Expo Go로 스캔합니다.
+
+Expo 프로젝트: https://expo.dev/accounts/shshmy/projects/rainbow-jump
+
+플레이 화면은 가로로 고정됩니다. 계정은 `shshmy` Expo 프로젝트 `rainbow-jump`로 연결됩니다.
+
+## 웹으로 실행
 
 ```bash
 npm install
