@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">무지개점프</string>
+    <string name="title_activity_main">무지개점프</string>
+    <string name="package_name">app.rainbowjump.adventure</string>
+    <string name="custom_url_scheme">app.rainbowjump.adventure</string>
+</resources>
