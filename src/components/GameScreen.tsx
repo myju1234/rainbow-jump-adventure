@@ -1,5 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { difficultyOf, GROUND_Y, iconFor, makeRun, stages } from '../game/data'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  BOSS_BLOCK,
+  BOSS_HIT_DAMAGE,
+  BOSS_MAX_HP,
+  BOSS_REACH,
+  bossBeatAt,
+  bossFor,
+  bossOf,
+  checkpointsOf,
+  difficultyOf,
+  GROUND_Y,
+  HERO_START_X,
+  iconFor,
+  makeRun,
+  respawnRun,
+  stages,
+} from '../game/data'
 import type { Result, Run } from '../game/types'
 
 const WORLD_DESIGN_HEIGHT = 380
@@ -19,6 +35,7 @@ type Props = {
   onNext: () => void
   onStages: () => void
   onResume: () => void
+  onContinue: () => void
   needsRotate: boolean
 }
 
@@ -35,17 +52,24 @@ export function GameScreen({
   onNext,
   onStages,
   onResume,
+  onContinue,
   needsRotate,
 }: Props) {
   const stage = stages[stageNo - 1]
   const difficultyLevel = difficultyOf(stageNo)
   const enemyWobble = 34 + stageNo * 2
   const enemyTempo = Math.max(150, 260 - stageNo * 7)
+  const boss = useMemo(() => bossOf(stage), [stage])
+  const bossInfo = useMemo(() => bossFor(stageNo), [stageNo])
+  const checkpoints = useMemo(() => checkpointsOf(stage), [stage])
   const [run, setRun] = useState<Run>(() => makeRun())
   const [now, setNow] = useState(() => performance.now())
   const keys = useRef({ left: false, right: false, down: false })
   const runRef = useRef(run)
   const finishing = useRef(false)
+  const bossAnnounced = useRef(false)
+  /** 보스전이 시작된 시각. 여기서부터 보스의 공격 주기를 셉니다. */
+  const bossFightStart = useRef<number | null>(null)
   const worldRef = useRef<HTMLElement>(null)
   const [worldScale, setWorldScale] = useState(1)
   const frozen = paused || needsRotate
@@ -64,6 +88,8 @@ export function GameScreen({
   useEffect(() => {
     setRun(makeRun())
     finishing.current = false
+    bossAnnounced.current = false
+    bossFightStart.current = null
   }, [stageNo])
 
   useEffect(() => {
@@ -86,6 +112,11 @@ export function GameScreen({
     )
   }, [frozen, result])
 
+  const respawnX = useCallback(
+    (index: number) => (index >= 0 ? checkpoints[index] : HERO_START_X),
+    [checkpoints],
+  )
+
   const hit = useCallback(() => {
     const curr = runRef.current
     if (curr.shield) {
@@ -94,20 +125,35 @@ export function GameScreen({
       return
     }
     const lives = curr.lives - 1
+    const backTo = respawnX(curr.checkpointIndex)
+    // 보스 방 밖으로 되돌아갔다면 다시 들어올 때 등장 안내를 한 번 더 보여줍니다.
+    bossAnnounced.current = backTo >= boss.gateX
+    bossFightStart.current = null
+    setRun(respawnRun(curr, Math.max(0, lives), backTo))
     if (lives <= 0) {
-      setRun({ ...makeRun(0), lives: 0 })
       onFailRef.current()
+    } else if (curr.checkpointIndex >= 0) {
+      onNoticeRef.current(`앗! 목숨 ${lives}개 · 체크포인트 ${curr.checkpointIndex + 1}에서 다시!`)
     } else {
       onNoticeRef.current(`앗! 목숨이 ${lives}개 남았어요.`)
-      setRun(makeRun(lives))
     }
-  }, [])
+  }, [boss.gateX, respawnX])
+
+  const continueFromCheckpoint = useCallback(() => {
+    const curr = runRef.current
+    const backTo = respawnX(curr.checkpointIndex)
+    bossAnnounced.current = backTo >= boss.gateX
+    bossFightStart.current = null
+    finishing.current = false
+    setRun(respawnRun(curr, 3, backTo))
+    onContinue()
+  }, [boss.gateX, onContinue, respawnX])
 
   const dash = useCallback(() => {
     if (frozen || result) return
-    const t = performance.now()
-    setRun((prev) => (prev.dashUntil > t + 100 ? prev : { ...prev, dashUntil: t + 650, crouching: false }))
-    onNoticeRef.current('💨 대시!')
+    const turningOn = !runRef.current.dashOn
+    setRun((prev) => ({ ...prev, dashOn: turningOn, crouching: false }))
+    onNoticeRef.current(turningOn ? '💨 대시 켜짐! 한 번 더 누르면 꺼져요.' : '🐾 대시 꺼짐')
   }, [frozen, result])
 
   const attack = useCallback(() => {
@@ -126,7 +172,8 @@ export function GameScreen({
       if (event.key === 'ArrowRight') keys.current.right = true
       if (event.key === 'ArrowDown') keys.current.down = true
       if (event.key === 'ArrowUp' || event.key === ' ') jump()
-      if (event.key === 'm' || event.key === 'M') dash()
+      // 키를 누르고 있어도 대시가 계속 켜졌다 꺼지지 않도록 첫 입력만 받습니다.
+      if ((event.key === 'm' || event.key === 'M') && !event.repeat) dash()
       if (event.key === 'n' || event.key === 'N') attack()
     }
     const up = (event: KeyboardEvent) => {
@@ -153,13 +200,17 @@ export function GameScreen({
       setNow(time)
       const prev = runRef.current
       const boosted = prev.starUntil > time
-      const dashing = prev.dashUntil > time
+      const dashing = prev.dashOn
+      const bossAlive = prev.bossHp > 0
+      const bossX = boss.x + Math.sin(time / 520) * boss.patrol
       const direction = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0)
       const speed =
         direction *
         ((155 + difficultyLevel * 7) * (boosted ? 1.65 : 1) * (dashing ? 2.15 : 1)) *
         (keys.current.down ? 0.58 : 1)
       let nx = Math.max(15, prev.x + speed * dt)
+      // 보스가 길을 막습니다. 부딪히는 것만으로는 다치지 않고 그 앞에서 멈춥니다.
+      if (bossAlive) nx = Math.min(nx, bossX - BOSS_BLOCK)
       let ny = prev.y + prev.vy * dt
       let nvy = prev.vy + (1550 + difficultyLevel * 55) * dt
       const gapMargin = difficultyLevel * 5
@@ -220,7 +271,74 @@ export function GameScreen({
         }
       }
 
-      if (nx >= stage.length - 120) {
+      let reached = next.checkpointIndex
+      for (let i = checkpoints.length - 1; i > next.checkpointIndex; i -= 1) {
+        if (nx >= checkpoints[i]) {
+          reached = i
+          break
+        }
+      }
+      if (reached > next.checkpointIndex) {
+        next = { ...next, checkpointIndex: reached }
+        onNoticeRef.current(`⛳ 체크포인트 ${reached + 1}! 여기서 다시 시작해요.`)
+      }
+
+      if (bossAlive && nx >= boss.gateX && bossFightStart.current === null) {
+        bossFightStart.current = time
+        if (!bossAnnounced.current) {
+          bossAnnounced.current = true
+          onNoticeRef.current(`⚔️ ${bossInfo.icon} ${bossInfo.name} 등장! N으로 10번 공격, 충격파는 점프로!`)
+        }
+      }
+
+      if (bossAlive) {
+        const swinging = next.attackUntil > time
+        const inReach = Math.abs(nx - bossX) < BOSS_REACH && Math.abs(ny - boss.y) < 96
+        if (inReach && swinging && next.bossHitToken !== next.attackUntil) {
+          const bossHp = Math.max(0, next.bossHp - BOSS_HIT_DAMAGE)
+          next = {
+            ...next,
+            bossHp,
+            bossHitToken: next.attackUntil,
+            score: next.score + (bossHp <= 0 ? 1000 : 60),
+          }
+          onNoticeRef.current(
+            bossHp <= 0
+              ? `🏆 ${bossInfo.name}을(를) 물리쳤어요! +1000`
+              : `💥 명중! 보스 체력 ${bossHp}/${BOSS_MAX_HP}`,
+          )
+        }
+
+        // 충격파는 땅으로 퍼집니다. 점프해 있으면 그대로 지나갑니다.
+        const beat = bossFightStart.current === null ? null : bossBeatAt(time - bossFightStart.current)
+        if (beat?.phase === 'wave' && next.invulnUntil <= time) {
+          const waveX = bossX - beat.waveOffset
+          const standing = ny >= GROUND_Y - 46
+          if (standing && Math.abs(nx - waveX) < 46) {
+            if (next.shield) {
+              next = { ...next, shield: false, invulnUntil: time + 1400 }
+              onNoticeRef.current('🛡️ 보호막이 충격파를 막았어요!')
+            } else if (next.lives <= 1) {
+              hit()
+              frame = requestAnimationFrame(tick)
+              return
+            } else {
+              nx = Math.max(15, nx - 130)
+              next = {
+                ...next,
+                x: nx,
+                vy: -320,
+                lives: next.lives - 1,
+                invulnUntil: time + 1500,
+                camera: Math.max(0, nx - 270),
+              }
+              onNoticeRef.current(`💥 충격파! 목숨 ${next.lives}개 · 다음엔 점프로 피해요`)
+            }
+          }
+        }
+      }
+
+      if (nx >= stage.length - 120 && next.bossHp <= 0) {
         if (!finishing.current) {
           finishing.current = true
           setRun(next)
@@ -235,7 +353,7 @@ export function GameScreen({
 
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [difficultyLevel, enemyTempo, enemyWobble, frozen, hit, result, stage])
+  }, [boss, bossInfo, checkpoints, difficultyLevel, enemyTempo, enemyWobble, frozen, hit, result, stage])
 
   const setHeld = (side: HeldKey, value: boolean) => {
     keys.current[side] = value
@@ -246,11 +364,24 @@ export function GameScreen({
     run.walking ? 'walking' : '',
     run.starUntil > now ? 'boosted' : '',
     run.growUntil > now ? 'grown' : '',
-    run.dashUntil > now ? 'dashing' : '',
+    run.dashOn ? 'dashing' : '',
     run.attackUntil > now ? 'attacking' : '',
     run.shield ? 'shielded' : '',
     run.crouching ? 'crouching' : '',
+    run.invulnUntil > now ? 'invuln' : '',
   ].filter(Boolean).join(' ')
+
+  const bossAlive = run.bossHp > 0
+  const bossEngaged = bossAlive && run.x >= boss.gateX
+  const bossX = boss.x + Math.sin(now / 520) * boss.patrol
+  const bossBeat =
+    bossAlive && bossFightStart.current !== null ? bossBeatAt(now - bossFightStart.current) : null
+  const bossInReach = bossAlive && Math.abs(run.x - bossX) < BOSS_REACH
+  const bossStruck = bossAlive && run.bossHitToken > now
+  const attacking = run.attackUntil > now
+  const bossClass = ['boss', bossInReach ? 'in-reach' : '', bossStruck ? 'struck' : '', bossBeat ? bossBeat.phase : '']
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <div className="game-layout">
@@ -282,14 +413,31 @@ export function GameScreen({
           <small>버섯 효과</small>
           <strong>{run.growUntil > now ? '🍄 커지는 중!' : '🍄 먹으면 커져요'}</strong>
         </div>
+        <div className="checkpoint-status">
+          <small>체크포인트</small>
+          <strong>
+            {run.checkpointIndex >= 0
+              ? `⛳ ${run.checkpointIndex + 1} / ${checkpoints.length}`
+              : `🏳️ 0 / ${checkpoints.length}`}
+          </strong>
+        </div>
         <div className="hud-extra dash-guide">
           <small>대시</small>
-          <strong>{run.dashUntil > now ? '💨 질주!' : 'M 키'}</strong>
+          <strong>{run.dashOn ? '💨 켜짐 (M 끄기)' : 'M 키로 켜기'}</strong>
         </div>
         <div className="hud-extra dash-guide">
           <small>공격</small>
           <strong>{run.attackUntil > now ? '✨ 공격 중!' : 'N 키 · 공격'}</strong>
         </div>
+        {bossEngaged && (
+          <div className="hud-boss">
+            <small>{bossInfo.icon} {bossInfo.name}</small>
+            <div className="boss-hp">
+              <i style={{ width: `${(run.bossHp / BOSS_MAX_HP) * 100}%` }} />
+              <b>{run.bossHp} / {BOSS_MAX_HP}</b>
+            </div>
+          </div>
+        )}
         <button className="pause-btn" onClick={onPauseToggle}>
           {paused ? '▶ 계속' : 'Ⅱ 일시정지'}
         </button>
@@ -326,9 +474,38 @@ export function GameScreen({
                   {iconFor(item.type, item.id)}
                 </div>
               ))}
-            <div className="flag" style={{ left: stage.length - 90, top: 194 }}>
-              <span>🚩</span>
-              <small>도착!</small>
+            {checkpoints.map((cx, index) => {
+              const reached = index <= run.checkpointIndex
+              return (
+                <div
+                  key={cx}
+                  className={reached ? 'checkpoint reached' : 'checkpoint'}
+                  style={{ left: cx, top: 236 }}
+                >
+                  <span aria-hidden="true">{reached ? '⛳' : '🏳️'}</span>
+                  <small>{reached ? `체크포인트 ${index + 1}` : '체크포인트'}</small>
+                </div>
+              )
+            })}
+            {bossAlive && (
+              <div className={bossClass} style={{ left: bossX, top: boss.y }}>
+                <div className="boss-hp">
+                  <i style={{ width: `${(run.bossHp / BOSS_MAX_HP) * 100}%` }} />
+                </div>
+                <span className="boss-face" aria-hidden="true">{bossInfo.icon}</span>
+                <small>{bossInfo.name}</small>
+                {bossStruck && <b className="boss-damage">-{BOSS_HIT_DAMAGE}</b>}
+                {bossBeat?.phase === 'ready' && <em className="boss-warn">점프 준비!</em>}
+              </div>
+            )}
+            {bossBeat?.phase === 'wave' && (
+              <div className="shockwave" style={{ left: bossX - bossBeat.waveOffset, top: 290 }}>
+                <span aria-hidden="true">💥</span>
+              </div>
+            )}
+            <div className={bossAlive ? 'flag locked' : 'flag'} style={{ left: stage.length - 90, top: 194 }}>
+              <span>{bossAlive ? '🔒' : '🚩'}</span>
+              <small>{bossAlive ? '보스를 물리쳐요' : '도착!'}</small>
             </div>
             <div
               className={heroClass}
@@ -339,6 +516,7 @@ export function GameScreen({
               }}
             >
               <span className="sparkle">✦</span>
+              {attacking && <span className="claw" aria-hidden="true" />}
               <span aria-hidden="true">🦊</span>
             </div>
           </div>
@@ -348,7 +526,7 @@ export function GameScreen({
         </div>
         <div className="attack-hint" aria-label="공격 조작 안내">
           <kbd>N</kbd>
-          <span>공격 · 적을 물리쳐요</span>
+          <span>{bossEngaged ? '공격 · 💥 충격파는 점프로 피해요' : '공격 · 적을 물리쳐요'}</span>
         </div>
       </main>
 
@@ -368,10 +546,19 @@ export function GameScreen({
           <button className="up-control" aria-label="점프" onPointerDown={jump}>
             ▲<small>점프</small>
           </button>
-          <button className="dash-control" aria-label="대시" onPointerDown={dash}>
-            M<small>대시</small>
+          <button
+            className={run.dashOn ? 'dash-control dash-on' : 'dash-control'}
+            aria-label="대시 켜기 끄기"
+            aria-pressed={run.dashOn}
+            onPointerDown={dash}
+          >
+            M<small>{run.dashOn ? '대시 끄기' : '대시 켜기'}</small>
           </button>
-          <button className="attack-control" aria-label="N 키 공격" onPointerDown={attack}>
+          <button
+            className={attacking ? 'attack-control swinging' : 'attack-control'}
+            aria-label="N 키 공격"
+            onPointerDown={attack}
+          >
             <b>N</b><small>공격</small>
           </button>
         </div>
@@ -399,8 +586,22 @@ export function GameScreen({
               <>
                 <span className="big-icon">💫</span>
                 <h1>다시 도전해요!</h1>
-                <p>목숨을 모두 썼지만, 모험가는 포기하지 않아요.</p>
-                <button className="primary-btn" onClick={onRetry}>처음부터 다시</button>
+                <p>
+                  {run.checkpointIndex >= 0
+                    ? `체크포인트 ${run.checkpointIndex + 1}까지 왔어요. 거기서 이어서 달릴까요?`
+                    : '목숨을 모두 썼지만, 모험가는 포기하지 않아요.'}
+                </p>
+                {run.checkpointIndex >= 0 && (
+                  <button className="primary-btn" onClick={continueFromCheckpoint}>
+                    ⛳ 체크포인트 {run.checkpointIndex + 1}에서 이어하기
+                  </button>
+                )}
+                <button
+                  className={run.checkpointIndex >= 0 ? 'secondary-btn' : 'primary-btn'}
+                  onClick={onRetry}
+                >
+                  처음부터 다시
+                </button>
                 <button className="text-btn" onClick={onStages}>스테이지 선택</button>
               </>
             ) : (

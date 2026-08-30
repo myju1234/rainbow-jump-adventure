@@ -44,9 +44,16 @@ export type Run = {
   starUntil: number
   heartUntil: number
   growUntil: number
-  dashUntil: number
+  dashOn: boolean
   attackUntil: number
   shield: boolean
+  bossHp: number
+  /** 같은 공격 한 번으로 보스를 여러 번 때리지 않도록 쓰는 표식 */
+  bossHitToken: number
+  /** 지나온 마지막 체크포인트 번호. 아직 없으면 -1 */
+  checkpointIndex: number
+  /** 피격 직후 잠시 무적인 시간 */
+  invulnUntil: number
   collected: string[]
   camera: number
   bounce: boolean

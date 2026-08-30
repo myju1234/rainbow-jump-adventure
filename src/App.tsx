@@ -135,6 +135,10 @@ export default function App() {
           onNext={() => (stageNo < stages.length ? startStage(stageNo + 1) : setView('stages'))}
           onStages={() => setView('stages')}
           onResume={() => setPaused(false)}
+          onContinue={() => {
+            setResult(null)
+            setPaused(false)
+          }}
           needsRotate={needsRotate}
         />
       )}

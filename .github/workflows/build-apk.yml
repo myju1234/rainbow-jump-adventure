@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -38,7 +41,23 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
+      - name: Name the APK for download
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk rainbow-jump.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: rainbow-jump-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: rainbow-jump.apk
+
+      # 로그인 없이도 늘 같은 주소에서 최신 설치 파일을 받을 수 있게 릴리스로 올립니다.
+      - name: Publish as the latest installable release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest rainbow-jump.apk \
+            --title "무지개 점프 대모험 · 최신 설치 파일" \
+            --notes "휴대폰에서 아래 rainbow-jump.apk를 눌러 내려받아 설치하세요.
+          빌드한 커밋: ${{ github.sha }}" \
+            --latest

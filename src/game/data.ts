@@ -1,10 +1,37 @@
-import type { ItemType, Progress, Run, StageItem, ThemeKey } from './types'
+import type { ItemType, Progress, Run, StageData, StageItem, ThemeKey } from './types'
 
 export const STAGE_COUNT = 15
 export const THEMES: ThemeKey[] = ['rainbow', 'forest', 'moon', 'dash']
 export const GROUND_Y = 274
 export const FALL_Y = 410
 export const HERO_START_X = 80
+
+export const BOSS_MAX_HP = 100
+export const BOSS_HIT_DAMAGE = 10
+export const CHECKPOINT_SPACING = 1400
+
+/** 주인공의 N 공격이 보스에게 닿는 거리 */
+export const BOSS_REACH = 150
+/** 보스 앞에서 더 다가가지 못하고 멈추는 거리. 부딪혀도 다치지 않습니다. */
+export const BOSS_BLOCK = 66
+/** 보스는 이 주기로 "준비 → 충격파"를 반복합니다. */
+export const BOSS_CYCLE_MS = 2800
+export const BOSS_READY_AT = 1650
+export const BOSS_WAVE_AT = 2250
+export const BOSS_WAVE_SPEED = 480
+
+export type BossBeat = { phase: 'idle' | 'ready' | 'wave'; waveOffset: number }
+
+/**
+ * 보스전이 시작되고 흐른 시간으로 지금 보스가 무엇을 하는지 계산합니다.
+ * 충격파는 땅으로 퍼지므로 점프하면 피할 수 있습니다.
+ */
+export function bossBeatAt(elapsed: number): BossBeat {
+  const t = elapsed % BOSS_CYCLE_MS
+  if (t < BOSS_READY_AT) return { phase: 'idle', waveOffset: 0 }
+  if (t < BOSS_WAVE_AT) return { phase: 'ready', waveOffset: 0 }
+  return { phase: 'wave', waveOffset: ((t - BOSS_WAVE_AT) / 1000) * BOSS_WAVE_SPEED }
+}
 
 export const themes: Record<ThemeKey, { name: string; subtitle: string; emoji: string; className: string }> = {
   rainbow: { name: '무지개 점프 대모험', subtitle: '파란 하늘을 달리는 알록달록 모험', emoji: '🌈', className: 'theme-rainbow' },
@@ -49,9 +76,13 @@ export const makeRun = (lives = 3): Run => ({
   starUntil: 0,
   heartUntil: 0,
   growUntil: 0,
-  dashUntil: 0,
+  dashOn: false,
   attackUntil: 0,
   shield: false,
+  bossHp: BOSS_MAX_HP,
+  bossHitToken: 0,
+  checkpointIndex: -1,
+  invulnUntil: 0,
   collected: [],
   camera: 0,
   bounce: false,
@@ -70,6 +101,70 @@ export function iconFor(type: ItemType, id = '') {
 export function difficultyOf(stageNo: number) {
   return Math.min(5, Math.ceil(stageNo / 3))
 }
+
+const bossRoster = [
+  { icon: '🐲', name: '불꽃 드래곤' },
+  { icon: '👹', name: '붉은 도깨비' },
+  { icon: '🦑', name: '먹물 대왕' },
+  { icon: '🤖', name: '고철 로봇' },
+  { icon: '🐙', name: '문어 대장' },
+]
+
+export function bossFor(stageNo: number) {
+  return bossRoster[(stageNo - 1) % bossRoster.length]
+}
+
+/** 보스는 깃발 바로 앞을 지키고 서 있습니다. */
+export function bossOf(stage: StageData) {
+  return {
+    x: stage.length - 250,
+    y: 262,
+    /** 이 지점을 넘어서면 보스전이 시작됩니다. */
+    gateX: stage.length - 640,
+    patrol: 38,
+  }
+}
+
+/** 낭떠러지 위에 체크포인트가 놓이지 않도록 앞쪽 안전한 땅으로 밀어 줍니다. */
+function safeGround(x: number, gaps: Array<[number, number]>) {
+  let safe = x
+  for (const [start, end] of gaps) {
+    if (safe > start - 80 && safe < end + 80) safe = end + 80
+  }
+  return Math.round(safe)
+}
+
+/**
+ * 스테이지를 일정 간격으로 나눈 체크포인트 위치입니다.
+ * 마지막 하나는 보스 방 입구에 두어, 보스에게 지더라도 멀리 되돌아가지 않게 합니다.
+ */
+export function checkpointsOf(stage: StageData) {
+  const boss = bossOf(stage)
+  const spots: number[] = []
+  for (let x = CHECKPOINT_SPACING; x < boss.gateX - 300; x += CHECKPOINT_SPACING) {
+    spots.push(safeGround(x, stage.gaps))
+  }
+  spots.push(safeGround(boss.x - 330, stage.gaps))
+  // 낭떠러지를 피하다 두 개가 겹쳐 붙는 경우를 정리합니다.
+  return spots.reduce<number[]>((kept, x) => {
+    if (kept.length === 0 || x - kept[kept.length - 1] > 260) kept.push(x)
+    return kept
+  }, [])
+}
+
+/**
+ * 목숨을 하나 잃었을 때 마지막 체크포인트에서 다시 시작합니다.
+ * 모아 둔 점수와 동전, 이미 먹은 아이템은 그대로 남습니다.
+ */
+export const respawnRun = (prev: Run, lives: number, x: number): Run => ({
+  ...makeRun(lives),
+  x,
+  camera: Math.max(0, x - 270),
+  score: prev.score,
+  coins: prev.coins,
+  collected: prev.collected,
+  checkpointIndex: prev.checkpointIndex,
+})
 
 const coins = (start: number, count: number, step = 62, y = 255, tag = ''): StageItem[] =>
   Array.from({ length: count }, (_, i) => ({

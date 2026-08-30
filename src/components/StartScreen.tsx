@@ -39,6 +39,9 @@ export function StartScreen({
         <h1>{themes[theme].name}</h1>
         <p className="hero-copy">{themes[theme].subtitle}</p>
         <p className="play-hint">휴대폰에서는 모험이 시작되면 가로 화면으로 플레이해요.</p>
+        <p className="play-hint">
+          스테이지 끝에는 보스가 기다려요. N 공격으로 10번 맞히고, 붉은 충격파는 점프로 피해요!
+        </p>
         {installed && <p className="install-badge">앱으로 실행 중</p>}
         <button className="primary-btn start-btn" onClick={onStart}>
           ▶ 모험 시작
