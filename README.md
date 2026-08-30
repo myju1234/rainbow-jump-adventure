@@ -94,10 +94,18 @@ npx cap open android
 ## 아이콘 다시 만들기
 
 `assets/icon-source.png`(여우 원본)와 `assets/icon-source-maskable.png`를 교체한 뒤 아래를 실행하면
-Expo·PWA·안드로이드 런처 아이콘이 모두 다시 생성됩니다.
+Expo·PWA·안드로이드 런처 아이콘 28개가 모두 다시 생성되고, 곧바로 검사까지 돌아갑니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/make-icons.ps1
+npm run icons
 ```
+
+검사만 따로 돌리려면 `npm run icons:verify`를 쓰면 됩니다. `npm run build`도 이 검사를 먼저 실행합니다.
+
+`scripts/make-icons.ps1`은 **반드시 UTF-8 BOM으로 저장해야 합니다.** BOM이 없으면
+Windows PowerShell이 한글을 잘못 읽어 스크립트 앞부분이 조용히 실행되지 않고,
+안드로이드 아이콘만 바뀐 채로 넘어갑니다. 실제로 한 번 겪은 문제여서
+`scripts/verify-icons.mjs`가 결과물을 따로 검사합니다. 이 검사기는 파일이 없거나
+크기가 다르거나 `app.json`·`index.html`이 없는 아이콘을 가리키면 빌드를 실패시킵니다.
 
 15개 스테이지, 4가지 테마가 있습니다.

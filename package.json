@@ -9,8 +9,10 @@
     "expo": "npm run build:expo && expo start --tunnel --go",
     "android": "npm run build:expo && expo start --android --go",
     "ios": "npm run build:expo && expo start --ios --go",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run icons:verify && tsc --noEmit && vite build",
     "build:expo": "vite build --config vite.expo.config.ts && node scripts/prepare-expo-html.mjs",
+    "icons": "powershell -ExecutionPolicy Bypass -File scripts/make-icons.ps1 && npm run icons:verify",
+    "icons:verify": "node scripts/verify-icons.mjs",
     "preview": "vite preview --host",
     "server": "uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000",
     "cap:sync": "npm run build && npx cap sync android"
