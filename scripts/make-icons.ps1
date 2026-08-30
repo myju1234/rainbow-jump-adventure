@@ -33,6 +33,11 @@ function Resize-Icon([string]$from, [string]$to, [int]$size) {
 Write-Host "[1/2] Expo / web icons"
 Resize-Icon $Source   "assets/icon.png"                            1024
 Resize-Icon $Maskable "assets/adaptive-icon.png"                   1024
+# app.json이 직접 쓰지는 않지만, 오래된 아이콘이 남지 않도록 함께 갱신합니다.
+Resize-Icon $Source   "assets/splash-icon.png"                     1024
+Resize-Icon $Source   "assets/images/icon.png"                     1024
+Resize-Icon $Maskable "assets/images/android-icon-foreground.png"  1024
+Resize-Icon $Source   "assets/images/splash-icon.png"              1024
 Resize-Icon $Source   "public/icons/icon-192.png"                  192
 Resize-Icon $Source   "public/icons/icon-512.png"                  512
 Resize-Icon $Maskable "public/icons/icon-maskable-512.png"         512
